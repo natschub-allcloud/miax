@@ -9,6 +9,7 @@
       "source.bat",
       "**/__init__.py",
       "**/__pycache__",
+      "tests",
       ".venv"
     ]
   },
@@ -17,9 +18,14 @@
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
     "@aws-cdk/aws-s3:serverAccessLogsUseBucketPolicy": true,
+    "@aws-cdk/core:crossStackReferencesDefaultStrong": true,
+    "env": "dev",
     "deployAgent": false,
-    "embeddingModelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-embed-text-v2:0",
+    "embeddingModelId": "amazon.titan-embed-text-v2:0",
     "embeddingDimension": 1024,
-    "agentModelId": "anthropic.claude-sonnet-4-6"
+    "agentModelId": "anthropic.claude-sonnet-4-6",
+    "logRetentionDays": 90,
+    "enableTracing": true,
+    "cdkNag": false
   }
 }
