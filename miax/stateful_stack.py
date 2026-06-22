@@ -3,16 +3,20 @@
 Holds all *stateful* / data resources whose lifecycle and retained data should
 be managed independently of compute:
 
-* Customer-managed KMS key - encrypts buckets, vector store and logs.
 * Access-logs bucket - S3 server access logs for audit.
 * Input S3 bucket  - where raw documents are first uploaded (front end target).
 * Source S3 bucket - the curated data source the Knowledge Base ingests from.
 * S3 Vectors bucket + index - the vector store backing the Knowledge Base.
+* DynamoDB query-log table - one row per agent query (audit).
 * Bedrock Knowledge Base + S3 data source - RAG index with ``permissions_group``
   metadata filtering enabled.
 
-The companion :class:`MiaxStatelessStack` consumes the bucket/key references and
-the Knowledge Base id/arn exposed as public attributes on this stack.
+Encryption at rest uses AWS-managed/owned keys (SSE-S3, DynamoDB default) which
+keeps this POC simple. Swap to a customer-managed KMS key later for prod if the
+client's security policy requires it.
+
+The companion :class:`MiaxStatelessStack` consumes the bucket references and the
+Knowledge Base id/arn exposed as public attributes on this stack.
 """
 
 from aws_cdk import (
@@ -23,7 +27,6 @@ from aws_cdk import (
     aws_s3 as s3,
     aws_s3vectors as s3vectors,
     aws_iam as iam,
-    aws_kms as kms,
     aws_bedrock as bedrock,
     aws_dynamodb as dynamodb,
 )
@@ -58,40 +61,13 @@ class MiaxStatefulStack(Stack):
         auto_delete = not config.is_prod
 
         # ------------------------------------------------------------------
-        # 0. Customer-managed KMS key for encryption at rest (rotation on).
-        # ------------------------------------------------------------------
-        self.data_key = kms.Key(
-            self,
-            "DataKey",
-            alias=f"alias/{PROJECT_PREFIX}-{config.env_name}-data",
-            description="MIAX RAG data encryption key (buckets, vectors, logs).",
-            enable_key_rotation=True,
-            removal_policy=removal_policy,
-        )
-        # Allow Bedrock and S3 service principals to use the key for KB ingestion
-        # and bucket operations, scoped to this account.
-        self.data_key.add_to_resource_policy(
-            iam.PolicyStatement(
-                sid="AllowBedrockUseOfKey",
-                principals=[iam.ServicePrincipal("bedrock.amazonaws.com")],
-                actions=[
-                    "kms:Decrypt",
-                    "kms:GenerateDataKey",
-                    "kms:DescribeKey",
-                ],
-                resources=["*"],
-                conditions={"StringEquals": {"aws:SourceAccount": account}},
-            )
-        )
-
-        # ------------------------------------------------------------------
         # 1. Access-logs bucket (S3 server access logging target).
         # ------------------------------------------------------------------
         self.access_logs_bucket = s3.Bucket(
             self,
             "AccessLogsBucket",
             bucket_name=f"{PROJECT_PREFIX}-access-logs-{account}-{region}",
-            encryption=s3.BucketEncryption.S3_MANAGED,  # log delivery cannot use SSE-KMS
+            encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
             versioned=True,
@@ -111,9 +87,7 @@ class MiaxStatefulStack(Stack):
             self,
             "InputBucket",
             bucket_name=f"{PROJECT_PREFIX}-input-{account}-{region}",
-            encryption=s3.BucketEncryption.KMS,
-            encryption_key=self.data_key,
-            bucket_key_enabled=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
             versioned=True,
@@ -162,9 +136,7 @@ class MiaxStatefulStack(Stack):
             self,
             "SourceBucket",
             bucket_name=f"{PROJECT_PREFIX}-source-{account}-{region}",
-            encryption=s3.BucketEncryption.KMS,
-            encryption_key=self.data_key,
-            bucket_key_enabled=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             enforce_ssl=True,
             versioned=True,
@@ -184,7 +156,7 @@ class MiaxStatefulStack(Stack):
         #     what, the answer, permission group, latency, token usage and the
         #     citations. Partitioned by username with a time-sorted range key so
         #     a UI can page a user's history; a GSI lets you query across users
-        #     by day. Encrypted with the customer-managed key; PITR enabled.
+        #     by permission group. AWS-owned encryption (default); PITR enabled.
         # ------------------------------------------------------------------
         self.query_log_table = dynamodb.Table(
             self,
@@ -197,8 +169,6 @@ class MiaxStatefulStack(Stack):
                 name="timestamp", type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-            encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED,
-            encryption_key=self.data_key,
             point_in_time_recovery=True,
             removal_policy=removal_policy,
             # Optional automatic expiry of old audit rows (set 'ttl' epoch attr).
@@ -217,19 +187,15 @@ class MiaxStatefulStack(Stack):
 
         # ------------------------------------------------------------------
         # 4. S3 Vectors store - a vector bucket containing a single index that
-
         #    the Knowledge Base writes embeddings into. ``permissions_group``
         #    remains filterable (only the Bedrock chunk/text blobs are excluded)
-        #    which is what powers per-request permission filtering.
+        #    which is what powers per-request permission filtering. Default
+        #    (AES256) encryption keeps the POC simple.
         # ------------------------------------------------------------------
         self.vector_bucket = s3vectors.CfnVectorBucket(
             self,
             "VectorBucket",
             vector_bucket_name=f"{PROJECT_PREFIX}-vectors-{account}-{region}",
-            encryption_configuration=s3vectors.CfnVectorBucket.EncryptionConfigurationProperty(
-                sse_type="aws:kms",
-                kms_key_arn=self.data_key.key_arn,
-            ),
         )
 
         self.vector_index = s3vectors.CfnIndex(
@@ -275,9 +241,8 @@ class MiaxStatefulStack(Stack):
             )
         )
 
-        # Read the source bucket (data source) and decrypt with the data key.
+        # Read the source bucket (the data source).
         self.source_bucket.grant_read(kb_role)
-        self.data_key.grant_decrypt(kb_role)
 
         kb_role.add_to_policy(
             iam.PolicyStatement(
@@ -296,8 +261,6 @@ class MiaxStatefulStack(Stack):
                 ],
             )
         )
-        # The vector store is KMS-encrypted; allow the KB role to use the key.
-        self.data_key.grant_encrypt_decrypt(kb_role)
 
         # ------------------------------------------------------------------
         # 6. Knowledge Base backed by S3 Vectors.
@@ -360,7 +323,6 @@ class MiaxStatefulStack(Stack):
         # ------------------------------------------------------------------
         # Outputs
         # ------------------------------------------------------------------
-        CfnOutput(self, "DataKeyArn", value=self.data_key.key_arn)
         CfnOutput(self, "InputBucketName", value=self.input_bucket.bucket_name)
         CfnOutput(self, "SourceBucketName", value=self.source_bucket.bucket_name)
         CfnOutput(self, "VectorBucketName", value=self.vector_bucket.vector_bucket_name)
@@ -368,7 +330,6 @@ class MiaxStatefulStack(Stack):
         CfnOutput(self, "KnowledgeBaseId", value=self.knowledge_base_id)
         CfnOutput(self, "DataSourceId", value=self.data_source_id)
         CfnOutput(self, "QueryLogTableName", value=self.query_log_table.table_name)
-
         CfnOutput(
             self,
             "PermissionMetadataKey",

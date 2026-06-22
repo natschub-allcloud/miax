@@ -28,8 +28,8 @@ from aws_cdk import (
     Duration,
     CfnOutput,
     aws_s3 as s3,
-    aws_kms as kms,
     aws_lambda as lambda_,
+
     aws_iam as iam,
     aws_logs as logs,
     aws_sqs as sqs,
@@ -64,8 +64,8 @@ class MiaxStatelessStack(Stack):
         config: AppConfig,
         input_bucket: s3.IBucket,
         source_bucket: s3.IBucket,
-        data_key: kms.IKey,
         knowledge_base_id: str,
+
         knowledge_base_arn: str,
         data_source_id: str,
         query_log_table: dynamodb.ITable,
@@ -152,8 +152,8 @@ class MiaxStatelessStack(Stack):
         )
         input_bucket.grant_read_write(ingest_fn)
         source_bucket.grant_read_write(ingest_fn)
-        data_key.grant_encrypt_decrypt(ingest_fn)
         kb_sync_fn.grant_invoke(ingest_fn)
+
 
         # EventBridge rule (avoids a cross-stack notification dependency cycle).
         events.Rule(
@@ -199,8 +199,8 @@ class MiaxStatelessStack(Stack):
         )
         input_bucket.grant_read_write(bulk_ingest_fn)
         source_bucket.grant_read_write(bulk_ingest_fn)
-        data_key.grant_encrypt_decrypt(bulk_ingest_fn)
         kb_sync_fn.grant_invoke(bulk_ingest_fn)
+
 
         bulk_ingest_url = bulk_ingest_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.AWS_IAM,
@@ -270,9 +270,9 @@ class MiaxStatelessStack(Stack):
                 ],
             )
         )
-        # Write audit rows; the table is KMS-encrypted so allow key usage.
+        # Write audit rows to the query-log table.
         query_log_table.grant_write_data(query_fn)
-        data_key.grant_encrypt_decrypt(query_fn)
+
 
         query_url = query_fn.add_function_url(
             auth_type=lambda_.FunctionUrlAuthType.AWS_IAM,
@@ -336,8 +336,8 @@ class MiaxStatelessStack(Stack):
                     resources=[knowledge_base_arn],
                 )
             )
-            data_key.grant_decrypt(agent_role)
             # Emit observability traces/metrics.
+
             agent_role.add_to_policy(
                 iam.PolicyStatement(
                     sid="Observability",

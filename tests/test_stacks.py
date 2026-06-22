@@ -28,8 +28,8 @@ def _synth(deploy_agent: bool = False, env_name: str = "dev"):
         config=config,
         input_bucket=stateful.input_bucket,
         source_bucket=stateful.source_bucket,
-        data_key=stateful.data_key,
         knowledge_base_id=stateful.knowledge_base_id,
+
         knowledge_base_arn=stateful.knowledge_base_arn,
         data_source_id=stateful.data_source_id,
         query_log_table=stateful.query_log_table,
@@ -58,11 +58,11 @@ def test_buckets_are_encrypted_and_private():
     )
 
 
-def test_kms_key_rotation_enabled():
+def test_no_customer_managed_kms_key():
+    # POC uses default AWS-managed/owned encryption - no CMK should be created.
     stateful, _ = _synth()
-    stateful.has_resource_properties(
-        "AWS::KMS::Key", {"EnableKeyRotation": True}
-    )
+    stateful.resource_count_is("AWS::KMS::Key", 0)
+
 
 
 def test_knowledge_base_uses_s3_vectors():
@@ -114,7 +114,7 @@ def test_function_urls_use_iam_auth():
         assert url["Properties"]["AuthType"] == "AWS_IAM"
 
 
-def test_audit_table_is_encrypted_with_cmk_and_pitr():
+def test_audit_table_has_pitr():
     stateful, _ = _synth()
     stateful.has_resource_properties(
         "AWS::DynamoDB::Table",
@@ -122,11 +122,11 @@ def test_audit_table_is_encrypted_with_cmk_and_pitr():
             {
                 "PointInTimeRecoverySpecification": {
                     "PointInTimeRecoveryEnabled": True
-                },
-                "SSESpecification": {"SSEEnabled": True},
+                }
             }
         ),
     )
+
 
 
 

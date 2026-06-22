@@ -54,8 +54,8 @@ stateless = MiaxStatelessStack(
     config=config,
     input_bucket=stateful.input_bucket,
     source_bucket=stateful.source_bucket,
-    data_key=stateful.data_key,
     knowledge_base_id=stateful.knowledge_base_id,
+
     knowledge_base_arn=stateful.knowledge_base_arn,
     data_source_id=stateful.data_source_id,
     query_log_table=stateful.query_log_table,
