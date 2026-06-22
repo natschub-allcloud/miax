@@ -105,13 +105,23 @@ def test_lambdas_have_dlqs_and_tracing():
     assert len(queues) >= 4
 
 
-def test_function_urls_use_iam_auth():
+def test_api_gateway_with_api_key():
     _, stateless = _synth()
-    # Both the bulk-ingest and the query endpoints are IAM-authenticated.
-    urls = stateless.find_resources("AWS::Lambda::Url")
-    assert len(urls) >= 2
-    for url in urls.values():
-        assert url["Properties"]["AuthType"] == "AWS_IAM"
+    # One REST API fronts the three routes, protected by an API key + usage plan.
+    stateless.resource_count_is("AWS::ApiGateway::RestApi", 1)
+    stateless.resource_count_is("AWS::ApiGateway::ApiKey", 1)
+    stateless.resource_count_is("AWS::ApiGateway::UsagePlan", 1)
+    # No Lambda Function URLs anymore - everything goes through API Gateway.
+    stateless.resource_count_is("AWS::Lambda::Url", 0)
+    # All POST methods require an API key.
+    methods = stateless.find_resources(
+        "AWS::ApiGateway::Method",
+        {"Properties": {"HttpMethod": "POST"}},
+    )
+    assert len(methods) == 3  # /query, /single-file, /bulk-ingest
+    for method in methods.values():
+        assert method["Properties"]["ApiKeyRequired"] is True
+
 
 
 def test_audit_table_has_pitr():

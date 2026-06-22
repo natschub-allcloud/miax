@@ -1,7 +1,11 @@
 """Bulk-ingest Lambda.
 
-Invoked by the front end (via an IAM-authenticated Lambda Function URL) after a
-user drag/drops a batch of files **plus a manifest CSV** for bulk upload.
+Invoked by the front end via **API Gateway** (``POST /bulk-ingest`` with an
+``x-api-key`` header) after a user drag/drops a batch of files **plus a manifest
+CSV** for bulk upload. The CSV is the source of truth for permissions: each row
+maps a filename to its permission group (unlike the single-file path, where the
+permission comes from one UI field).
+
 
 Workflow expected from the UI:
 1. Stage each file in the input bucket under ``bulk/<batch_id>/<filename>``.

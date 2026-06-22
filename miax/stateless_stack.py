@@ -3,22 +3,25 @@
 Holds all *stateless* / compute resources. These can be torn down and
 re-deployed without losing data:
 
-* Ingest Lambda - single-file path, triggered by ``Object Created`` events on
-  the input bucket (via EventBridge). Moves a document into the source bucket
-  and stamps the ``permissions_group`` metadata sidecar.
-* Bulk-ingest Lambda - CSV-manifest path, invoked by the front end via an
-  IAM-authenticated Function URL.
-* KB-sync Lambda - starts a Bedrock ingestion job (debounced; skips if one is
-  already running) so newly curated documents are embedded automatically.
-* Bedrock AgentCore Runtime - hosts the RAG agent that queries the Knowledge
-  Base with a per-request metadata filter.
+* KB-sync Lambda - starts a Bedrock ingestion job (debounced) so newly curated
+  documents are embedded automatically.
+* Ingest Lambda - S3 event path: triggered by ``Object Created`` on the input
+  bucket (via EventBridge). Reads ``permissions_group`` from the object's S3
+  metadata, copies it into the source bucket, and writes the sidecar.
+* Single-file upload Lambda - API path: receives {filename, permission_group,
+  content_base64} and writes the file + metadata sidecar to the source bucket.
+* Bulk-ingest Lambda - API path: parses a manifest CSV (filename + permissions
+  per row) for files staged under ``bulk/<batch_id>/`` and ingests each.
+* Query Lambda - API path: the RAG agent. Retrieves permission-filtered chunks,
+  generates a grounded answer, logs to DynamoDB.
 
-Cross-cutting hardening: dead-letter queues, CloudWatch log retention, X-Ray
-tracing, least-privilege IAM, and KMS usage are applied to every function.
+All three *API* paths are fronted by a single **API Gateway REST API** protected
+by an **API key + usage plan** (header ``x-api-key``). No Cognito/IAM signing is
+required - the POC assumes any caller with the key is authorised.
 
-Consumes references (buckets, key, KB id/arn) from :class:`MiaxStatefulStack`.
-The AgentCore runtime is gated behind ``deploy_agent`` because it requires a
-Docker image build. Enable with ``-c deployAgent=true``.
+Consumes references (buckets, KB id/arn, audit table) from
+:class:`MiaxStatefulStack`. The AgentCore container runtime is gated behind
+``deploy_agent`` because it requires a Docker image build.
 """
 
 import os
@@ -29,7 +32,6 @@ from aws_cdk import (
     CfnOutput,
     aws_s3 as s3,
     aws_lambda as lambda_,
-
     aws_iam as iam,
     aws_logs as logs,
     aws_sqs as sqs,
@@ -37,6 +39,7 @@ from aws_cdk import (
     aws_ecr_assets as ecr_assets,
     aws_events as events,
     aws_events_targets as targets,
+    aws_apigateway as apigw,
     aws_bedrockagentcore as agentcore,
 )
 
@@ -54,7 +57,7 @@ _LAMBDA_DIR = os.path.join(os.path.dirname(__file__), "..", "lambda")
 
 
 class MiaxStatelessStack(Stack):
-    """Ingest + bulk-ingest + KB-sync Lambdas and the AgentCore runtime."""
+    """Ingest/upload/bulk/query Lambdas, API Gateway, and the AgentCore runtime."""
 
     def __init__(
         self,
@@ -65,13 +68,11 @@ class MiaxStatelessStack(Stack):
         input_bucket: s3.IBucket,
         source_bucket: s3.IBucket,
         knowledge_base_id: str,
-
         knowledge_base_arn: str,
         data_source_id: str,
         query_log_table: dynamodb.ITable,
         **kwargs,
     ) -> None:
-
         super().__init__(scope, construct_id, **kwargs)
 
         self.config = config
@@ -91,12 +92,14 @@ class MiaxStatelessStack(Stack):
             "LOG_LEVEL": "INFO",
         }
 
+        model_profile_arn = config.agent_model_inference_profile_arn
+        foundation_model_arn = (
+            f"arn:aws:bedrock:{region}::foundation-model/{config.agent_model_id}"
+        )
+
         # ------------------------------------------------------------------
         # 0. KB-sync Lambda - starts an ingestion job (idempotent / debounced).
-        #    Invoked asynchronously by the ingest Lambdas after they write to
-        #    the source bucket, so the KB stays current without manual syncs.
         # ------------------------------------------------------------------
-        kb_sync_dlq = self._dlq("KbSyncDlq")
         kb_sync_fn = lambda_.Function(
             self,
             "KbSyncFunction",
@@ -108,7 +111,7 @@ class MiaxStatelessStack(Stack):
             memory_size=256,
             tracing=tracing,
             log_retention=log_retention,
-            dead_letter_queue=kb_sync_dlq,
+            dead_letter_queue=self._dlq("KbSyncDlq"),
             reserved_concurrent_executions=1,  # serialise ingestion-job starts
             environment={
                 **common_env,
@@ -129,9 +132,8 @@ class MiaxStatelessStack(Stack):
         )
 
         # ------------------------------------------------------------------
-        # 1. Single-file ingest Lambda.
+        # 1. Single-file ingest Lambda - S3 EventBridge path (object metadata).
         # ------------------------------------------------------------------
-        ingest_dlq = self._dlq("IngestDlq")
         ingest_fn = lambda_.Function(
             self,
             "IngestFunction",
@@ -143,7 +145,7 @@ class MiaxStatelessStack(Stack):
             memory_size=256,
             tracing=tracing,
             log_retention=log_retention,
-            dead_letter_queue=ingest_dlq,
+            dead_letter_queue=self._dlq("IngestDlq"),
             environment={
                 **common_env,
                 "SOURCE_BUCKET": source_bucket.bucket_name,
@@ -154,8 +156,6 @@ class MiaxStatelessStack(Stack):
         source_bucket.grant_read_write(ingest_fn)
         kb_sync_fn.grant_invoke(ingest_fn)
 
-
-        # EventBridge rule (avoids a cross-stack notification dependency cycle).
         events.Rule(
             self,
             "IngestRule",
@@ -175,9 +175,32 @@ class MiaxStatelessStack(Stack):
         )
 
         # ------------------------------------------------------------------
-        # 2. Bulk-ingest Lambda + IAM-authenticated Function URL.
+        # 2. Single-file UPLOAD Lambda - API path (file + permission string).
         # ------------------------------------------------------------------
-        bulk_dlq = self._dlq("BulkIngestDlq")
+        upload_fn = lambda_.Function(
+            self,
+            "UploadFunction",
+            function_name=f"{PROJECT_PREFIX}-{config.env_name}-single-file",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=lambda_.Code.from_asset(os.path.join(_LAMBDA_DIR, "upload")),
+            timeout=Duration.minutes(2),
+            memory_size=512,
+            tracing=tracing,
+            log_retention=log_retention,
+            dead_letter_queue=self._dlq("UploadDlq"),
+            environment={
+                **common_env,
+                "SOURCE_BUCKET": source_bucket.bucket_name,
+                "KB_SYNC_FUNCTION_NAME": kb_sync_fn.function_name,
+            },
+        )
+        source_bucket.grant_read_write(upload_fn)
+        kb_sync_fn.grant_invoke(upload_fn)
+
+        # ------------------------------------------------------------------
+        # 3. Bulk-ingest Lambda - API path (CSV manifest drives permissions).
+        # ------------------------------------------------------------------
         bulk_ingest_fn = lambda_.Function(
             self,
             "BulkIngestFunction",
@@ -189,7 +212,7 @@ class MiaxStatelessStack(Stack):
             memory_size=512,
             tracing=tracing,
             log_retention=log_retention,
-            dead_letter_queue=bulk_dlq,
+            dead_letter_queue=self._dlq("BulkIngestDlq"),
             environment={
                 **common_env,
                 "INPUT_BUCKET": input_bucket.bucket_name,
@@ -201,30 +224,9 @@ class MiaxStatelessStack(Stack):
         source_bucket.grant_read_write(bulk_ingest_fn)
         kb_sync_fn.grant_invoke(bulk_ingest_fn)
 
-
-        bulk_ingest_url = bulk_ingest_fn.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.AWS_IAM,
-            cors=lambda_.FunctionUrlCorsOptions(
-                allowed_origins=config.allowed_origins,
-                allowed_methods=[lambda_.HttpMethod.POST],
-                allowed_headers=["content-type", "authorization"],
-                max_age=Duration.seconds(3000),
-            ),
-        )
-
         # ------------------------------------------------------------------
-        # 3. Query Lambda + IAM-authenticated Function URL - THE AGENT ENDPOINT.
-        #    This is the HTTPS endpoint a UI calls. It retrieves permission-
-        #    filtered chunks from the Knowledge Base, generates a grounded answer
-        #    with the model, writes one audit row per query to DynamoDB, and
-        #    returns the answer + citations + token usage + latency.
+        # 4. Query Lambda - API path (the RAG agent).
         # ------------------------------------------------------------------
-        model_profile_arn = config.agent_model_inference_profile_arn
-        foundation_model_arn = (
-            f"arn:aws:bedrock:{region}::foundation-model/{config.agent_model_id}"
-        )
-
-        query_dlq = self._dlq("QueryDlq")
         query_fn = lambda_.Function(
             self,
             "QueryFunction",
@@ -236,7 +238,7 @@ class MiaxStatelessStack(Stack):
             memory_size=512,
             tracing=tracing,
             log_retention=log_retention,
-            dead_letter_queue=query_dlq,
+            dead_letter_queue=self._dlq("QueryDlq"),
             environment={
                 **common_env,
                 "KNOWLEDGE_BASE_ID": knowledge_base_id,
@@ -245,7 +247,6 @@ class MiaxStatelessStack(Stack):
                 "NUMBER_OF_RESULTS": "8",
             },
         )
-        # Retrieve from the KB (with the metadata filter).
         query_fn.add_to_role_policy(
             iam.PolicyStatement(
                 sid="RetrieveFromKnowledgeBase",
@@ -253,7 +254,6 @@ class MiaxStatelessStack(Stack):
                 resources=[knowledge_base_arn],
             )
         )
-        # Generate answers via the model inference profile.
         query_fn.add_to_role_policy(
             iam.PolicyStatement(
                 sid="InvokeGenerationModel",
@@ -270,26 +270,62 @@ class MiaxStatelessStack(Stack):
                 ],
             )
         )
-        # Write audit rows to the query-log table.
         query_log_table.grant_write_data(query_fn)
 
-
-        query_url = query_fn.add_function_url(
-            auth_type=lambda_.FunctionUrlAuthType.AWS_IAM,
-            cors=lambda_.FunctionUrlCorsOptions(
-                allowed_origins=config.allowed_origins,
-                allowed_methods=[lambda_.HttpMethod.POST],
-                allowed_headers=["content-type", "authorization"],
-                max_age=Duration.seconds(3000),
+        # ------------------------------------------------------------------
+        # 5. API Gateway (REST) - API-key protected, fronting the 3 API paths.
+        #      POST /query        -> query_fn        {username, permission_group, prompt}
+        #      POST /single-file  -> upload_fn       {filename, permission_group, content_base64}
+        #      POST /bulk-ingest  -> bulk_ingest_fn  {batch_id, manifest_csv?}
+        # ------------------------------------------------------------------
+        api = apigw.RestApi(
+            self,
+            "Api",
+            rest_api_name=f"{PROJECT_PREFIX}-{config.env_name}-api",
+            description="MIAX RAG API: query the agent + ingest documents (API-key auth).",
+            deploy_options=apigw.StageOptions(
+                stage_name=config.env_name,
+                throttling_rate_limit=50,
+                throttling_burst_limit=20,
+                tracing_enabled=config.enable_tracing,
+            ),
+            default_cors_preflight_options=apigw.CorsOptions(
+                allow_origins=config.allowed_origins,
+                allow_methods=["POST", "OPTIONS"],
+                allow_headers=["Content-Type", "x-api-key"],
             ),
         )
 
+        def _add_route(path: str, fn: lambda_.IFunction) -> None:
+            resource = api.root.add_resource(path)
+            resource.add_method(
+                "POST",
+                apigw.LambdaIntegration(fn, proxy=True),
+                api_key_required=True,
+            )
+
+        _add_route("query", query_fn)
+        _add_route("single-file", upload_fn)
+        _add_route("bulk-ingest", bulk_ingest_fn)
+
+        # API key + usage plan - callers must send header `x-api-key: <key>`.
+        api_key = api.add_api_key(
+            "ApiKey",
+            api_key_name=f"{PROJECT_PREFIX}-{config.env_name}-key",
+        )
+        usage_plan = api.add_usage_plan(
+            "UsagePlan",
+            name=f"{PROJECT_PREFIX}-{config.env_name}-usage-plan",
+            throttle=apigw.ThrottleSettings(rate_limit=50, burst_limit=20),
+        )
+        usage_plan.add_api_key(api_key)
+        usage_plan.add_api_stage(stage=api.deployment_stage)
+
         # ------------------------------------------------------------------
-        # 4. AgentCore Runtime (optional - requires a container image build).
+        # 6. AgentCore Runtime (optional - requires a container image build).
         # ------------------------------------------------------------------
         if config.deploy_agent:
             agent_image = ecr_assets.DockerImageAsset(
-
                 self,
                 "AgentImage",
                 directory=os.path.join(os.path.dirname(__file__), "..", "agent"),
@@ -311,9 +347,6 @@ class MiaxStatelessStack(Stack):
                 ),
             )
             agent_image.repository.grant_pull(agent_role)
-
-            # Invoke the generation model via its inference profile. Both the
-            # profile ARN and the underlying foundation-model ARN are required.
             agent_role.add_to_policy(
                 iam.PolicyStatement(
                     sid="InvokeGenerationModel",
@@ -328,7 +361,6 @@ class MiaxStatelessStack(Stack):
                     ],
                 )
             )
-            # Retrieve from the Knowledge Base (with the metadata filter).
             agent_role.add_to_policy(
                 iam.PolicyStatement(
                     sid="RetrieveFromKnowledgeBase",
@@ -336,8 +368,6 @@ class MiaxStatelessStack(Stack):
                     resources=[knowledge_base_arn],
                 )
             )
-            # Emit observability traces/metrics.
-
             agent_role.add_to_policy(
                 iam.PolicyStatement(
                     sid="Observability",
@@ -353,9 +383,6 @@ class MiaxStatelessStack(Stack):
                 )
             )
 
-            # The runtime uses the default AWS IAM (SigV4) auth - callers invoke
-            # it with signed requests. No JWT/OIDC authorizer is configured
-            # (kept intentionally simple).
             self.agent_runtime = agentcore.CfnRuntime(
                 self,
                 "AgentRuntime",
@@ -377,36 +404,30 @@ class MiaxStatelessStack(Stack):
                     "LOG_LEVEL": "INFO",
                 },
             )
-            # The deployed inbound endpoint ARN callers invoke (SigV4-signed
-            # InvokeAgentRuntime). This is the agent's "endpoint".
             CfnOutput(
                 self,
                 "AgentRuntimeArn",
                 value=self.agent_runtime.attr_agent_runtime_arn,
-                description="AgentCore runtime ARN - the endpoint to call via bedrock-agentcore InvokeAgentRuntime.",
+                description="AgentCore runtime ARN (alternative invocation path via bedrock-agentcore).",
             )
-
 
         # ------------------------------------------------------------------
         # Outputs
         # ------------------------------------------------------------------
-        CfnOutput(self, "IngestFunctionName", value=ingest_fn.function_name)
-        CfnOutput(self, "BulkIngestFunctionName", value=bulk_ingest_fn.function_name)
-        CfnOutput(self, "KbSyncFunctionName", value=kb_sync_fn.function_name)
-        CfnOutput(self, "QueryFunctionName", value=query_fn.function_name)
         CfnOutput(
             self,
-            "QueryFunctionUrl",
-            value=query_url.url,
-            description="THE AGENT ENDPOINT - IAM-authenticated HTTPS URL a UI POSTs {username, permission_group, prompt} to. Returns answer + citations.",
+            "ApiBaseUrl",
+            value=api.url,
+            description="Base URL of the REST API. Routes: POST {url}query, {url}single-file, {url}bulk-ingest. Send header x-api-key.",
         )
         CfnOutput(
             self,
-            "BulkIngestFunctionUrl",
-            value=bulk_ingest_url.url,
-            description="IAM-authenticated Function URL the front end calls to run a CSV bulk upload.",
+            "ApiKeyId",
+            value=api_key.key_id,
+            description="API key id. Get the secret value: aws apigateway get-api-key --api-key <id> --include-value",
         )
-
+        CfnOutput(self, "InputBucketName", value=input_bucket.bucket_name)
+        CfnOutput(self, "QueryLogTableName", value=query_log_table.table_name)
 
     # ----------------------------------------------------------------------
     # Helpers
@@ -427,7 +448,6 @@ class MiaxStatelessStack(Stack):
         return self._queue(construct_id)
 
 
-
 def _resolve_log_retention(days: int) -> logs.RetentionDays:
     """Map an integer day count to the nearest supported RetentionDays value."""
     mapping = {
@@ -445,7 +465,6 @@ def _resolve_log_retention(days: int) -> logs.RetentionDays:
     }
     if days in mapping:
         return mapping[days]
-    # Pick the smallest supported retention >= requested days.
     for threshold in sorted(mapping):
         if threshold >= days:
             return mapping[threshold]
