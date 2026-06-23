@@ -80,6 +80,11 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   // --- Permissions ---
   const selectedGroupObj = PERMISSION_GROUPS.find((g) => g.id === selectedPermission);
 
+  // Format markdown-style bold (**text**) to HTML
+  function formatMessage(text: string): string {
+    return text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
+
   // --- Bulk file upload ---
   function handleBulkFiles(files: FileList | null) {
     if (!files) return;
@@ -487,7 +492,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
               ) : (
                 messages.map((msg, i) => (
                   <div key={i} className={`chat-panel-bubble ${msg.role}`}>
-                    <p>{msg.content}</p>
+                    <p dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
                   </div>
                 ))
               )}
