@@ -2,6 +2,7 @@
 
 import { useState, useRef, DragEvent } from "react";
 import "./admin.css";
+import { queryAgent } from "../../src/lib/api";
 
 interface AdminPanelProps {
   onBack?: () => void;
@@ -41,6 +42,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     },
   ]);
   const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
 
   // --- Permissions ---
   function togglePermission(permission: string) {
@@ -95,22 +97,35 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   }
 
   // --- Chat ---
-  function handleChatSend(e: React.FormEvent) {
+  async function handleChatSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || chatLoading) return;
 
     const userMsg: ChatMessage = { role: "user", content: chatInput };
     setMessages((prev) => [...prev, userMsg]);
     setChatInput("");
+    setChatLoading(true);
 
-    setTimeout(() => {
-      const botMsg: ChatMessage = {
-        role: "bot",
-        content:
-          "Certainly. Recent focus has been on short-interest disclosure. Here is a summary of the latest rules...",
-      };
+    try {
+      // Use the first selected permission group, or default
+      const group = selectedPermissions[0]?.toLowerCase().replace(/\s+/g, "_") || "permissions_group_a";
+      const response = await queryAgent({
+        username: "admin@miax.com", // TODO: replace with real user from auth
+        permission_group: group,
+        prompt: chatInput,
+      });
+
+      const botMsg: ChatMessage = { role: "bot", content: response.answer };
       setMessages((prev) => [...prev, botMsg]);
-    }, 1000);
+    } catch (err) {
+      const errorMsg: ChatMessage = {
+        role: "bot",
+        content: `Sorry, something went wrong: ${err instanceof Error ? err.message : "Unknown error"}`,
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setChatLoading(false);
+    }
   }
 
   return (

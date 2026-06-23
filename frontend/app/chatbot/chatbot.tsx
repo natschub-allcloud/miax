@@ -3,6 +3,7 @@
 import { useState } from "react";
 import "./chatbot.css";
 import Waves from "../../src/component/Waves";
+import { queryAgent } from "../../src/lib/api";
 
 interface Message {
   role: "bot" | "user";
@@ -17,24 +18,35 @@ export default function Chatbot() {
     },
   ]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSend(e: React.FormEvent) {
+  async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
 
     const userMsg: Message = { role: "user", content: input };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    setLoading(true);
 
-    // Simulated bot response
-    setTimeout(() => {
-      const botMsg: Message = {
-        role: "bot",
-        content:
-          "Certainly. Recent focus has been on short-interest disclosure. Here is a summary of the latest rules...",
-      };
+    try {
+      const response = await queryAgent({
+        username: "user@miax.com", // TODO: replace with real user from auth
+        permission_group: "permissions_group_a", // TODO: replace with user's actual group
+        prompt: input,
+      });
+
+      const botMsg: Message = { role: "bot", content: response.answer };
       setMessages((prev) => [...prev, botMsg]);
-    }, 1000);
+    } catch (err) {
+      const errorMsg: Message = {
+        role: "bot",
+        content: `Sorry, something went wrong: ${err instanceof Error ? err.message : "Unknown error"}`,
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (

@@ -84,7 +84,12 @@ def _load_payload(event: dict) -> dict:
 def _response(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json"},
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type,x-api-key",
+            "Access-Control-Allow-Methods": "POST,OPTIONS",
+        },
         "body": json.dumps(body),
     }
 
