@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, DragEvent } from "react";
+import ReactMarkdown from "react-markdown";
 import "./admin.css";
 import Sidebar, { SidebarView } from "../sidebar/sidebar";
 import { queryAgent, uploadSingleFile, fileToBase64 } from "../../src/lib/api";
@@ -79,11 +80,6 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
 
   // --- Permissions ---
   const selectedGroupObj = PERMISSION_GROUPS.find((g) => g.id === selectedPermission);
-
-  // Format markdown-style bold (**text**) to HTML
-  function formatMessage(text: string): string {
-    return text.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  }
 
   // --- Bulk file upload ---
   function handleBulkFiles(files: FileList | null) {
@@ -492,7 +488,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
               ) : (
                 messages.map((msg, i) => (
                   <div key={i} className={`chat-panel-bubble ${msg.role}`}>
-                    <p dangerouslySetInnerHTML={{ __html: formatMessage(msg.content) }} />
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
                   </div>
                 ))
               )}
