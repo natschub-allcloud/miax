@@ -2,6 +2,7 @@
 
 import { useState, useRef, DragEvent } from "react";
 import "./admin.css";
+import Sidebar, { SidebarView } from "../sidebar/sidebar";
 import { queryAgent, uploadSingleFile, fileToBase64 } from "../../src/lib/api";
 
 interface AdminPanelProps {
@@ -9,14 +10,27 @@ interface AdminPanelProps {
 }
 
 const PERMISSION_GROUPS = [
-  "Permissions Group A",
-  "Permissions Group B",
-  "Permissions Group C",
+  {
+    id: "Permissions Group A",
+    label: "Permissions Group A",
+    description: "General access, shared across the organization",
+  },
+  {
+    id: "Permissions Group B",
+    label: "Permissions Group B",
+    description: "Shared with your immediate team only",
+  },
+  {
+    id: "Permissions Group C",
+    label: "Permissions Group C",
+    description: "Restricted, limited to named collaborators",
+  },
 ];
 
 interface UploadedFile {
   file: File;
   id: string;
+  status?: "pending" | "uploaded" | "failed";
 }
 
 interface ChatMessage {
@@ -27,8 +41,15 @@ interface ChatMessage {
 type UploadTab = "single" | "bulk";
 
 export default function AdminPanel({ onBack }: AdminPanelProps) {
+  // Navigation
+  const [activeView, setActiveView] = useState<SidebarView>("assistant");
+
   // Permissions state
-  const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
+  const [selectedPermission, setSelectedPermission] = useState<string>("");
+  const [permDropdownOpen, setPermDropdownOpen] = useState(false);
+
+  // Keep selectedPermissions array in sync for the API calls
+  const selectedPermissions = selectedPermission ? [selectedPermission] : [];
 
   // Upload tab state
   const [activeTab, setActiveTab] = useState<UploadTab>("single");
@@ -49,24 +70,15 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const singleFileInputRef = useRef<HTMLInputElement>(null);
 
   // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "bot",
-      content:
-        "Welcome to Miax - how can I assist you today?",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Uploaded file history
+  const [completedFiles, setCompletedFiles] = useState<string[]>([]);
+
   // --- Permissions ---
-  function togglePermission(permission: string) {
-    setSelectedPermissions((prev) =>
-      prev.includes(permission)
-        ? prev.filter((p) => p !== permission)
-        : [...prev, permission]
-    );
-  }
+  const selectedGroupObj = PERMISSION_GROUPS.find((g) => g.id === selectedPermission);
 
   // --- Bulk file upload ---
   function handleBulkFiles(files: FileList | null) {
@@ -74,6 +86,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     const newFiles: UploadedFile[] = Array.from(files).map((file) => ({
       file,
       id: `${file.name}-${Date.now()}-${Math.random()}`,
+      status: "pending" as const,
     }));
     setUploadedFiles((prev) => [...prev, ...newFiles]);
   }
@@ -121,6 +134,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
           content_base64: base64,
         });
         successCount++;
+        setCompletedFiles((prev) => [...prev, item.file.name]);
       } catch {
         errorCount++;
       }
@@ -170,6 +184,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
         content_base64: base64,
       });
       setSingleStatus(`Uploaded "${singleFile.name}" successfully.`);
+      setCompletedFiles((prev) => [...prev, singleFile.name]);
       setSingleFile(null);
       setSingleDescription("");
     } catch (err) {
@@ -213,69 +228,89 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   }
 
   return (
-    <div className="admin-hub">
-      {/* Header */}
-      <div className="admin-hub-header">
-        <div>
-          <h1>Miax Hub</h1>
-          <p className="admin-subtitle">Permissions, Uploads &amp; MIAX Chat</p>
+    <div className="admin-layout">
+      {/* Sidebar */}
+      <Sidebar activeView={activeView} onNavigate={setActiveView} onBack={onBack} />
+
+      {/* Main content */}
+      <main className="admin-main">
+        {/* Top bar */}
+        <div className="admin-topbar">
+          <div className="admin-topbar-left">
+            <h1>Miax Document Assistant</h1>
+            <p>Upload, organize, and chat with your knowledge base</p>
+          </div>
+          <div className="admin-topbar-right">
+            <span className="indexed-badge">● {completedFiles.length} indexed</span>
+          </div>
         </div>
-        {onBack && (
-          <button className="admin-back-btn" onClick={onBack}>
-            &larr; Back
-          </button>
-        )}
-      </div>
 
-      {/* Two-column layout */}
-      <div className="admin-hub-layout">
-        {/* LEFT: Permissions + Uploads */}
-        <div className="admin-left">
-          {/* Permissions Context */}
-          <section className="admin-section">
-            <h2>Permissions Context</h2>
-            <div className="permissions-grid">
-              {PERMISSION_GROUPS.map((group) => {
-                const isSelected = selectedPermissions.includes(group);
-                return (
-                  <label key={group} className="permission-toggle-item">
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => togglePermission(group)}
-                      className="permission-toggle-input"
-                    />
-                    <span className="permission-toggle-label">{group}</span>
-                    <span className={`permission-toggle-switch ${isSelected ? "active" : ""}`}>
-                      <span className="permission-toggle-knob" />
-                    </span>
-                  </label>
-                );
-              })}
+        {/* Content area */}
+        <div className="admin-content">
+          {/* Left panel — Upload */}
+          <div className="admin-upload-panel">
+            <h2>Upload documents</h2>
+            <p className="upload-subtitle">Set an access level, then add the files you want to chat with.</p>
+
+            {/* Permission group */}
+            <div className="permission-section">
+              <label className="permission-section-label">Permission group</label>
+              <div className="permission-custom-dropdown">
+                <button
+                  className="permission-dropdown-trigger"
+                  onClick={() => setPermDropdownOpen(!permDropdownOpen)}
+                  type="button"
+                >
+                  <span className="permission-dropdown-text">
+                    {selectedGroupObj?.label || "Select a group..."}
+                  </span>
+                  <span className={`permission-dropdown-arrow ${permDropdownOpen ? "open" : ""}`}>
+                    &#8964;
+                  </span>
+                </button>
+                {permDropdownOpen && (
+                  <div className="permission-dropdown-menu">
+                    {PERMISSION_GROUPS.map((group) => (
+                      <button
+                        key={group.id}
+                        className={`permission-dropdown-option ${selectedPermission === group.id ? "selected" : ""}`}
+                        onClick={() => {
+                          setSelectedPermission(group.id);
+                          setPermDropdownOpen(false);
+                        }}
+                        type="button"
+                      >
+                        <div className="permission-option-text">
+                          <span className="permission-option-label">{group.label}</span>
+                          <span className="permission-option-desc">{group.description}</span>
+                        </div>
+                        {selectedPermission === group.id && (
+                          <span className="permission-option-check">✓</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </section>
 
-          {/* Upload Container with Tabs */}
-          <section className="admin-section">
-            <h2>Upload Container</h2>
-
-            {/* Tabs */}
+            {/* Upload tabs */}
             <div className="upload-tabs">
               <button
                 className={`upload-tab ${activeTab === "single" ? "active" : ""}`}
                 onClick={() => setActiveTab("single")}
               >
-                [ SINGLE FILE UPLOAD ]
+                Single File
               </button>
               <button
                 className={`upload-tab ${activeTab === "bulk" ? "active" : ""}`}
                 onClick={() => setActiveTab("bulk")}
               >
-                [ BULK FILE UPLOAD ]
+                Bulk Upload
               </button>
             </div>
 
-            {/* Single File Upload Tab */}
+            {/* Single File Tab */}
             {activeTab === "single" && (
               <div className="upload-tab-content">
                 <div
@@ -286,12 +321,23 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                   onClick={() => singleFileInputRef.current?.click()}
                 >
                   <div className="upload-icon">&#128196;</div>
-                  <p>Drag a single file here (max 6MB)</p>
+                  <p className="upload-zone-title">Drag &amp; drop a file or click to browse</p>
+                  <p className="upload-hint">Supports PDF, DOCX, TXT, CSV and Markdown - up to 6MB</p>
+                  <button
+                    type="button"
+                    className="upload-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      singleFileInputRef.current?.click();
+                    }}
+                  >
+                    Select file
+                  </button>
                 </div>
                 <input
                   ref={singleFileInputRef}
                   type="file"
-                  accept=".csv,.xlsx,.xls,.pdf,.doc,.docx,.txt"
+                  accept=".csv,.xlsx,.xls,.pdf,.doc,.docx,.txt,.md"
                   style={{ display: "none" }}
                   onChange={(e) => {
                     if (e.target.files && e.target.files.length > 0) {
@@ -320,34 +366,18 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                   </div>
                 )}
 
-                <div className="single-file-meta">
-                  <label className="single-file-label" htmlFor="single-file-desc">
-                    File Description
-                  </label>
-                  <input
-                    id="single-file-desc"
-                    type="text"
-                    className="single-file-input"
-                    placeholder="Enter single file notes..."
-                    value={singleDescription}
-                    onChange={(e) => setSingleDescription(e.target.value)}
-                  />
-                </div>
-
-                <div className="upload-submit-row">
-                  <button
-                    className="admin-submit-btn"
-                    onClick={handleSingleFileSubmit}
-                    disabled={!singleFile || selectedPermissions.length === 0 || singleUploading}
-                  >
-                    {singleUploading ? "Uploading..." : "Process & Upload Single File \u2192"}
-                  </button>
-                </div>
+                <button
+                  className="admin-submit-btn"
+                  onClick={handleSingleFileSubmit}
+                  disabled={!singleFile || selectedPermissions.length === 0 || singleUploading}
+                >
+                  {singleUploading ? "Uploading..." : "Process & Upload →"}
+                </button>
                 {singleStatus && <p className="upload-status">{singleStatus}</p>}
               </div>
             )}
 
-            {/* Bulk File Upload Tab */}
+            {/* Bulk File Tab */}
             {activeTab === "bulk" && (
               <div className="upload-tab-content">
                 <div
@@ -358,10 +388,8 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                   onClick={() => bulkFileInputRef.current?.click()}
                 >
                   <div className="upload-icon">&#128194;</div>
-                  <p>Drag &amp; drop files here</p>
-                  <p className="upload-hint">
-                    Supports CSV, XLSX, PDF, DOC, DOCX &mdash; up to 50MB per file
-                  </p>
+                  <p className="upload-zone-title">Drag &amp; drop files or click to browse</p>
+                  <p className="upload-hint">Supports PDF, DOCX, TXT, CSV - up to 6MB each</p>
                   <button
                     type="button"
                     className="upload-btn"
@@ -370,14 +398,14 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                       bulkFileInputRef.current?.click();
                     }}
                   >
-                    Browse Files
+                    Select files
                   </button>
                 </div>
                 <input
                   ref={bulkFileInputRef}
                   type="file"
                   multiple
-                  accept=".csv,.xlsx,.xls,.pdf,.doc,.docx"
+                  accept=".csv,.xlsx,.xls,.pdf,.doc,.docx,.txt,.md"
                   style={{ display: "none" }}
                   onChange={(e) => handleBulkFiles(e.target.files)}
                 />
@@ -390,9 +418,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                         <div className="file-item-info">
                           <span className="file-item-icon">&#128196;</span>
                           <span className="file-item-name">{item.file.name}</span>
-                          <span className="file-item-size">
-                            {formatFileSize(item.file.size)}
-                          </span>
+                          <span className="file-item-size">{formatFileSize(item.file.size)}</span>
                         </div>
                         <button
                           className="file-remove-btn"
@@ -406,61 +432,85 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                   </div>
                 )}
 
-                <div className="upload-submit-row">
-                  <button
-                    className="admin-submit-btn"
-                    onClick={handleBulkSubmit}
-                    disabled={uploadedFiles.length === 0 || selectedPermissions.length === 0 || bulkUploading}
-                  >
-                    {bulkUploading ? "Uploading..." : "Process & Upload Bulk Files \u2192"}
-                  </button>
-                </div>
+                <button
+                  className="admin-submit-btn"
+                  onClick={handleBulkSubmit}
+                  disabled={uploadedFiles.length === 0 || selectedPermissions.length === 0 || bulkUploading}
+                >
+                  {bulkUploading ? "Uploading..." : "Process & Upload All →"}
+                </button>
                 {bulkStatus && <p className="upload-status">{bulkStatus}</p>}
               </div>
             )}
-          </section>
-        </div>
 
-        {/* RIGHT: Chat */}
-        <div className="admin-right">
-          <div className="hub-chat">
-            <div className="hub-chat-header">
-              <span className="chat-logo"><strong>MIAX</strong> CHAT</span>
-            </div>
-
-            <div className="hub-chat-hero">
-              <h2>Your Retrieval Assistant</h2>
-            </div>
-
-            <div className="hub-chat-messages">
-              {messages.map((msg, i) => (
-                <div key={i} className={`hub-chat-bubble ${msg.role}`}>
-                  <p>{msg.content}</p>
+            {/* Uploaded files section */}
+            <div className="uploaded-files-section">
+              <div className="uploaded-files-header">
+                <span>Uploaded files</span>
+                <span className="uploaded-files-count">{completedFiles.length}</span>
+              </div>
+              {completedFiles.length === 0 ? (
+                <div className="uploaded-files-empty">
+                  <p>No documents yet</p>
+                  <p className="uploaded-files-hint">Uploaded files will appear here.</p>
                 </div>
-              ))}
+              ) : (
+                <div className="uploaded-files-list">
+                  {completedFiles.map((name, i) => (
+                    <div key={i} className="uploaded-file-item">
+                      <span className="file-item-icon">&#128196;</span>
+                      <span className="file-item-name">{name}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right panel — Document Assistant Chat */}
+          <div className="admin-chat-panel">
+            <div className="chat-panel-header">
+              <div>
+                <h2>Document Assistant</h2>
+                <p>Ask questions across your uploaded content</p>
+              </div>
+              <span className="chat-docs-badge">● {completedFiles.length} docs</span>
             </div>
 
-            <form className="hub-chat-input-area" onSubmit={handleChatSend}>
-              <div className="hub-chat-input-wrapper">
+            <div className="chat-panel-messages">
+              {messages.length === 0 ? (
+                <div className="chat-empty-state">
+                  <div className="chat-empty-icon">&#128196;</div>
+                  <h3>Chat with your documents</h3>
+                  <p>Upload at least one document to start asking questions.</p>
+                </div>
+              ) : (
+                messages.map((msg, i) => (
+                  <div key={i} className={`chat-panel-bubble ${msg.role}`}>
+                    <p>{msg.content}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <form className="chat-panel-input-area" onSubmit={handleChatSend}>
+              <div className="chat-panel-input-wrapper">
                 <input
                   type="text"
-                  placeholder="Type your market query here..."
+                  placeholder="Upload a document to begin..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  className="hub-chat-input"
+                  className="chat-panel-input"
                 />
-                <div className="hub-chat-input-actions">
-                  <button type="button" className="hub-input-icon-btn" aria-label="Attach">&#128206;</button>
-                </div>
-                <button type="submit" className="hub-chat-send-btn" disabled={chatLoading}>
-                  {chatLoading ? "..." : "ASK MIAX \u2192"}
+                <button type="submit" className="chat-panel-send-btn" disabled={chatLoading}>
+                  {chatLoading ? "..." : "✈ Send"}
                 </button>
-                <button type="button" className="hub-chat-settings-btn" aria-label="Settings">&#9881;</button>
               </div>
+              <p className="chat-panel-context">📎 {completedFiles.length} documents in context</p>
             </form>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

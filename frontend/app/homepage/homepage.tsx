@@ -35,13 +35,6 @@ export default function Homepage({ onSignIn, onAdmin }: HomepageProps) {
       {/* Navigation */}
       <nav className="navbar">
         <div className="nav-logo">MIAX</div>
-        <ul className="nav-links">
-          <li><a href="#" className="nav-link">Global Markets</a></li>
-          <li><a href="#" className="nav-link">Asset Classes</a></li>
-          <li><a href="#" className="nav-link">Regulatory</a></li>
-          <li><a href="#" className="nav-link">About</a></li>
-        </ul>
-        <button className="nav-cta" onClick={onAdmin}>Client Access</button>
       </nav>
 
       {/* Hero Section */}
