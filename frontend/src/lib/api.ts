@@ -1,9 +1,7 @@
 /**
- * MIAX API client — thin wrapper around the API Gateway endpoints.
+ * MIAX API client — calls Next.js API routes which proxy to the backend.
+ * No CORS issues, API key stays server-side.
  */
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 
 export interface QueryRequest {
   username: string;
@@ -68,12 +66,9 @@ export interface ApiError {
  * Send a prompt to the RAG query endpoint and return the answer + citations.
  */
 export async function queryAgent(request: QueryRequest): Promise<QueryResponse> {
-  const res = await fetch(`${API_URL}query`, {
+  const res = await fetch("/api/query", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
 
@@ -88,15 +83,11 @@ export async function queryAgent(request: QueryRequest): Promise<QueryResponse> 
 
 /**
  * Upload a single file with its permission group. The file is sent as base64.
- * Max ~6MB due to API Gateway payload limits.
  */
 export async function uploadSingleFile(request: SingleFileRequest): Promise<SingleFileResponse> {
-  const res = await fetch(`${API_URL}single-file`, {
+  const res = await fetch("/api/single-file", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
 
@@ -113,12 +104,9 @@ export async function uploadSingleFile(request: SingleFileRequest): Promise<Sing
  * Trigger bulk ingestion for a batch of files already staged in S3.
  */
 export async function bulkIngest(request: BulkIngestRequest): Promise<BulkIngestResponse> {
-  const res = await fetch(`${API_URL}bulk-ingest`, {
+  const res = await fetch("/api/bulk-ingest", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": API_KEY,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
 
