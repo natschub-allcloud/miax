@@ -470,3 +470,198 @@
     min-height: 500px;
   }
 }
+
+/* Section header row — title + button side by side */
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.section-header-row h2 {
+  margin-bottom: 0;
+}
+
+/* System status indicator */
+.system-status {
+  font-size: 0.75rem;
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  padding: 0.3rem 0.75rem;
+  border-radius: 16px;
+  white-space: nowrap;
+}
+
+/* Inline submit button (for bulk upload header) */
+.admin-submit-btn-inline {
+  background: #c8a050;
+  color: #0a0a0f;
+  border: none;
+  padding: 0.45rem 1.1rem;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.admin-submit-btn-inline:hover {
+  background: #d4af5a;
+}
+
+.admin-submit-btn-inline:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Permission toggle items */
+.permission-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.4rem 0;
+}
+
+.permission-toggle-input {
+  display: none;
+}
+
+.permission-toggle-label {
+  color: rgba(255, 255, 255, 0.8);
+  flex: 1;
+}
+
+.permission-toggle-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.permission-toggle-switch.active {
+  background: #4caf50;
+}
+
+.permission-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.permission-toggle-switch.active .permission-toggle-knob {
+  transform: translateX(16px);
+}
+
+/* Upload status message */
+.upload-status {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 0.4rem 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Single file description input */
+.single-file-meta {
+  margin-top: 1rem;
+}
+
+.single-file-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  margin-bottom: 0.4rem;
+}
+
+.single-file-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 0.6rem 0.85rem;
+  color: #fff;
+  font-size: 0.82rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.single-file-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.single-file-input:focus {
+  border-color: rgba(200, 160, 80, 0.5);
+}
+
+/* Upload tabs */
+.upload-tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.75rem;
+}
+
+.upload-tab {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  padding: 0.4rem 0;
+  position: relative;
+  transition: color 0.2s;
+}
+
+.upload-tab:hover {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.upload-tab.active {
+  color: #fff;
+}
+
+.upload-tab.active::after {
+  content: "";
+  position: absolute;
+  bottom: -0.75rem;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #4a5fe0;
+  border-radius: 2px;
+}
+
+.upload-tab-content {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Upload submit row — right-aligned */
+.upload-submit-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}

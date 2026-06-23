@@ -29,6 +29,36 @@ export interface QueryResponse {
   latency_ms: number;
 }
 
+export interface SingleFileRequest {
+  filename: string;
+  permission_group: string;
+  content_base64: string;
+}
+
+export interface SingleFileResponse {
+  filename: string;
+  permission_group: string;
+  source_key: string;
+}
+
+export interface BulkIngestRequest {
+  batch_id: string;
+  manifest_csv?: string;
+}
+
+export interface BulkIngestResponse {
+  batch_id: string;
+  processed: Array<{
+    filename: string;
+    permission_group: string;
+    source_key: string;
+  }>;
+  errors: Array<{
+    filename?: string;
+    reason: string;
+  }>;
+}
+
 export interface ApiError {
   error: string;
   allowed_permission_groups?: string[];
@@ -54,4 +84,66 @@ export async function queryAgent(request: QueryRequest): Promise<QueryResponse> 
   }
 
   return data as QueryResponse;
+}
+
+/**
+ * Upload a single file with its permission group. The file is sent as base64.
+ * Max ~6MB due to API Gateway payload limits.
+ */
+export async function uploadSingleFile(request: SingleFileRequest): Promise<SingleFileResponse> {
+  const res = await fetch(`${API_URL}single-file`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+    },
+    body: JSON.stringify(request),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error((data as ApiError).error || `Upload failed (${res.status})`);
+  }
+
+  return data as SingleFileResponse;
+}
+
+/**
+ * Trigger bulk ingestion for a batch of files already staged in S3.
+ */
+export async function bulkIngest(request: BulkIngestRequest): Promise<BulkIngestResponse> {
+  const res = await fetch(`${API_URL}bulk-ingest`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+    },
+    body: JSON.stringify(request),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error((data as ApiError).error || `Bulk ingest failed (${res.status})`);
+  }
+
+  return data as BulkIngestResponse;
+}
+
+/**
+ * Convert a File object to a base64 string.
+ */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Remove the data:...;base64, prefix
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

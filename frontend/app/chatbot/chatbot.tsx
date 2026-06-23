@@ -14,7 +14,7 @@ export default function Chatbot() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "bot",
-      content: "Welcome to MIAX. How can I assist you with market data or multi-asset class technology today?",
+      content: "Welcome to Miax - how can I assist you today?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -78,8 +78,7 @@ export default function Chatbot() {
         </div>
 
         <div className="chat-hero">
-          <h1>Your Institutional Market Assistant</h1>
-          <p>AI-powered global market insights and technology support, available 24/7.</p>
+          <h1>Your Retrieval Assistant</h1>
         </div>
 
         <div className="chat-messages">
