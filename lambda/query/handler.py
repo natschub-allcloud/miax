@@ -62,6 +62,12 @@ PERMISSION_GROUPS = [
     if g.strip()
 ]
 NUMBER_OF_RESULTS = int(os.environ.get("NUMBER_OF_RESULTS", "8"))
+# Minimum cosine relevance score a retrieved chunk must have to be used as
+# context / shown as a citation. S3 Vectors returns higher = more similar;
+# retrieval always returns the top-N regardless of relevance, so without a
+# floor we'd cite weakly-related docs. Tune via MIN_SCORE env.
+MIN_SCORE = float(os.environ.get("MIN_SCORE", "0.4"))
+
 
 _table = dynamodb.Table(QUERY_LOG_TABLE)
 
@@ -122,8 +128,15 @@ def _retrieve(prompt: str, permission_group: str) -> list[dict]:
             }
         },
     )
+    results = resp.get("retrievalResults", [])
+
+    # Only keep chunks that clear the relevance floor, so we don't cite weakly
+    # related documents that retrieval returned just to fill the top-N. Results
+    # come back sorted by descending score.
+    relevant = [r for r in results if (r.get("score") or 0) >= MIN_SCORE]
+
     citations = []
-    for result in resp.get("retrievalResults", []):
+    for result in relevant:
         metadata = result.get("metadata", {}) or {}
         citations.append(
             {
@@ -136,6 +149,7 @@ def _retrieve(prompt: str, permission_group: str) -> list[dict]:
             }
         )
     return citations
+
 
 
 def _generate(prompt: str, citations: list[dict]) -> tuple[str, dict]:

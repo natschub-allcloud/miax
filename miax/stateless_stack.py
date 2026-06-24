@@ -289,6 +289,9 @@ class MiaxStatelessStack(Stack):
                 "MODEL_ARN": model_profile_arn,
                 "QUERY_LOG_TABLE": query_log_table.table_name,
                 "NUMBER_OF_RESULTS": "8",
+                # Relevance floor: drop weakly-related chunks from context +
+                # citations so off-topic documents aren't cited.
+                "MIN_SCORE": "0.4",
             },
         )
         query_fn.add_to_role_policy(
