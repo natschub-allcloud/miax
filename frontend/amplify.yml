@@ -1,17 +1,24 @@
 version: 1
-frontend:
-  phases:
-    preBuild:
-      commands:
-        - npm ci
-    build:
-      commands:
-        - npm run build
-  artifacts:
-    baseDirectory: .next
-    files:
-      - '**/*'
-  cache:
-    paths:
-      - .next/cache/**/*
-      - node_modules/**/*
+# The Next.js app lives in the `frontend/` subfolder of the repo, so this is a
+# monorepo build spec. In the Amplify console set the app's root directory to
+# `frontend` (App settings → Build settings → App root). The env vars API_URL
+# and API_KEY must be set in the Amplify console (App settings → Environment
+# variables) — they're read server-side by the Next.js API routes.
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        baseDirectory: .next
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - .next/cache/**/*
+          - node_modules/**/*
