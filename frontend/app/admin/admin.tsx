@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, DragEvent } from "react";
+import { useState, useRef, useEffect, DragEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import "./admin.css";
 import Sidebar, { SidebarView } from "../sidebar/sidebar";
-import { queryAgent, uploadSingleFile, fileToBase64, getPresignedUrl, uploadToS3, generateBatchId, bulkIngest } from "../../src/lib/api";
+import { queryAgent, uploadSingleFile, fileToBase64, getPresignedUrl, uploadToS3, generateBatchId, bulkIngest, getStats } from "../../src/lib/api";
+
 
 interface AdminPanelProps {
   onBack?: () => void;
@@ -74,12 +75,38 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  // The chat has its OWN permission group (independent of the upload dropdown),
+  // so you can switch between groups A/B/C within a single conversation to test
+  // that retrieval is correctly isolated per group.
+  const [chatPermission, setChatPermission] = useState<string>("Permissions Group A");
+
 
   // Uploaded file history
   const [completedFiles, setCompletedFiles] = useState<string[]>([]);
 
+  // Connection status to the backend / knowledge base. Determined by whether a
+  // lightweight API call (the stats endpoint) succeeds with the configured API
+  // key. null = checking, true = linked, false = disconnected.
+  const [connected, setConnected] = useState<boolean | null>(null);
+
+  async function checkConnection() {
+    try {
+      await getStats();
+      setConnected(true);
+    } catch {
+      setConnected(false);
+    }
+  }
+
+  // Check connectivity on load.
+  useEffect(() => {
+    checkConnection();
+  }, []);
+
+
   // --- Permissions ---
   const selectedGroupObj = PERMISSION_GROUPS.find((g) => g.id === selectedPermission);
+
 
   // --- Bulk file upload ---
   function handleBulkFiles(files: FileList | null) {
@@ -123,16 +150,24 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     setBulkStatus(null);
 
     // Find the manifest CSV among the uploaded files
-    const csvFile = uploadedFiles.find((f) => f.file.name.toLowerCase().endsWith(".csv"));
+    const csvFiles = uploadedFiles.filter((f) => f.file.name.toLowerCase().endsWith(".csv"));
+    const csvFile = csvFiles[0];
     const docFiles = uploadedFiles.filter((f) => !f.file.name.toLowerCase().endsWith(".csv"));
 
-    if (!csvFile) {
-      setBulkStatus("No CSV manifest found. Include a CSV file with 'filename' and 'permissions' columns.");
+    // Enforce exactly one CSV manifest.
+    if (csvFiles.length === 0) {
+      setBulkStatus("No CSV manifest found. Include exactly one CSV with 'filename' and 'permissions' columns.");
+      setBulkUploading(false);
+      return;
+    }
+    if (csvFiles.length > 1) {
+      setBulkStatus("Multiple CSV files found. Include exactly ONE CSV manifest.");
       setBulkUploading(false);
       return;
     }
 
     if (docFiles.length === 0) {
+
       setBulkStatus("No document files found. Include PDFs or other docs alongside the CSV manifest.");
       setBulkUploading(false);
       return;
@@ -180,6 +215,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       if (successCount > 0) {
         setUploadedFiles([]);
         setCompletedFiles((prev) => [...prev, ...result.processed.map((p) => p.filename)]);
+        checkConnection();
       }
       if (errorCount > 0) {
         const errorDetails = result.errors.map((e) => `${e.filename || "?"}: ${e.reason}`).join("; ");
@@ -230,6 +266,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       });
       setSingleStatus(`Uploaded "${singleFile.name}" successfully.`);
       setCompletedFiles((prev) => [...prev, singleFile.name]);
+      checkConnection();
       setSingleFile(null);
       setSingleDescription("");
     } catch (err) {
@@ -252,12 +289,15 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
     setChatLoading(true);
 
     try {
-      const group = selectedPermissions[0]?.toLowerCase().replace(/\s+/g, "_") || "permissions_group_a";
+      // Use the CHAT's own permission group (not the upload dropdown) so you can
+      // switch groups mid-conversation and verify per-group retrieval isolation.
+      const group = chatPermission.toLowerCase().replace(/\s+/g, "_");
       const response = await queryAgent({
         username: "admin@miax.com",
         permission_group: group,
         prompt: chatInput,
       });
+
 
       const botMsg: ChatMessage = { role: "bot", content: response.answer };
       setMessages((prev) => [...prev, botMsg]);
@@ -286,7 +326,13 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
             <p>Upload, organize, and chat with your knowledge base</p>
           </div>
           <div className="admin-topbar-right">
-            <span className="indexed-badge">● {completedFiles.length} indexed</span>
+            {connected === false ? (
+              <span className="conn-flag conn-flag-red">● Disconnected from AWS</span>
+            ) : connected === true ? (
+              <span className="conn-flag conn-flag-green">● Linked to Knowledge Base</span>
+            ) : (
+              <span className="conn-flag conn-flag-neutral">● Checking connection…</span>
+            )}
           </div>
         </div>
 
@@ -477,14 +523,24 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                   </div>
                 )}
 
+                {/* CSV format explainer */}
+                <div className="bulk-format-box">
+                  <strong>Bulk upload format</strong>
+                  <p>Include exactly <b>one CSV</b> manifest plus the document files it references. The CSV needs two columns:</p>
+                  <pre>{`filename,permissions
+q3-report.pdf,permissions_group_a
+roadmap.docx,permissions_group_b`}</pre>
+                  <p>Each row maps a file to its permission group. The permission comes from the CSV — not the dropdown above.</p>
+                </div>
                 <button
                   className="admin-submit-btn"
                   onClick={handleBulkSubmit}
-                  disabled={uploadedFiles.length === 0 || selectedPermissions.length === 0 || bulkUploading}
+                  disabled={uploadedFiles.length === 0 || bulkUploading}
                 >
                   {bulkUploading ? "Uploading..." : "Process & Upload All →"}
                 </button>
                 {bulkStatus && <p className="upload-status">{bulkStatus}</p>}
+
               </div>
             )}
 
@@ -519,8 +575,22 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                 <h2>Document Assistant</h2>
                 <p>Ask questions across your uploaded content</p>
               </div>
-              <span className="chat-docs-badge">● {completedFiles.length} docs</span>
+              {/* Chat permission selector - independent of the upload dropdown.
+                  Switch this between groups A/B/C to test isolation in one convo. */}
+              <div className="chat-permission-select">
+                <label htmlFor="chat-perm">Querying as</label>
+                <select
+                  id="chat-perm"
+                  value={chatPermission}
+                  onChange={(e) => setChatPermission(e.target.value)}
+                >
+                  {PERMISSION_GROUPS.map((g) => (
+                    <option key={g.id} value={g.id}>{g.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
+
 
             <div className="chat-panel-messages">
               {messages.length === 0 ? (

@@ -189,3 +189,22 @@ export async function uploadToS3(presignedUrl: string, file: File): Promise<void
 export function generateBatchId(): string {
   return `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+export interface StatsResponse {
+  indexed: number;
+  documents: string[];
+}
+
+/**
+ * Fetch how many documents are currently in the knowledge base (source bucket).
+ * Backs the "N indexed" badge with a real count.
+ */
+export async function getStats(): Promise<StatsResponse> {
+  const res = await fetch("/api/stats", { method: "GET" });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error((data as ApiError).error || `Stats failed (${res.status})`);
+  }
+  return data as StatsResponse;
+}
+

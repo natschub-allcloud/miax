@@ -1,18 +1,19 @@
 "use client";
 
-import { useState } from "react";
 import "./homepage.css";
 import Waves from "../../src/component/Waves";
-import AccountModal from "../account_signup_creating/account";
 
 interface HomepageProps {
   onSignIn?: () => void;
   onAdmin?: () => void;
 }
 
-export default function Homepage({ onSignIn, onAdmin }: HomepageProps) {
-  const [showAuth, setShowAuth] = useState(false);
-
+/**
+ * Minimal landing page for the POC: a title and a single "Sign In" button.
+ * There is no real authentication/enforcement here yet - clicking Sign In just
+ * opens the Document Assistant.
+ */
+export default function Homepage({ onSignIn }: HomepageProps) {
   return (
     <div className="homepage">
       {/* Background wave effect */}
@@ -39,59 +40,11 @@ export default function Homepage({ onSignIn, onAdmin }: HomepageProps) {
 
       {/* Hero Section */}
       <section className="hero">
-        <h1 className="hero-title">
-          Institutional<br />Trading Solution
-        </h1>
-        <p className="hero-description">
-          A leading financial exchange holding company providing
-          transparent global market data and execution
-        </p>
-        <button className="hero-btn" onClick={() => setShowAuth(true)}>
-          Sign Up / Sign In <span className="btn-arrow">&rarr;</span>
+        <h1 className="hero-title">MIAX RAG<br />Document Assistant</h1>
+        <button className="hero-btn" onClick={onSignIn}>
+          Sign In <span className="btn-arrow">&rarr;</span>
         </button>
       </section>
-
-      {/* Preview Section */}
-      <section className="preview">
-        <div className="preview-wrapper">
-          {/* Back card (left/behind) */}
-          <div className="preview-card preview-card-back">
-            <div className="preview-card-header">
-              <span className="preview-logo">MIAX</span>
-              <div className="preview-nav">
-                <span>Global Markets</span>
-                <span>Asset Classes</span>
-                <span>Regulatory</span>
-                <span>About</span>
-              </div>
-              <span className="preview-client">Client Access</span>
-            </div>
-            <div className="preview-card-body">
-              <div className="preview-screen"></div>
-            </div>
-          </div>
-
-          {/* Front card (right/in front) */}
-          <div className="preview-card preview-card-front">
-            <div className="preview-card-header">
-              <span className="preview-logo">MIAX</span>
-              <div className="preview-nav">
-                <span>Global Markets</span>
-                <span>Asset Classes</span>
-                <span>Regulatory</span>
-                <span>About</span>
-              </div>
-              {/* <span className="preview-client">Client Access</span> */}
-            </div>
-            <div className="preview-card-body">
-              <h3>Advanced multi-asset class<br />trading technology.</h3>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Auth Modal */}
-      <AccountModal isOpen={showAuth} onClose={() => setShowAuth(false)} onSignIn={onSignIn} />
     </div>
   );
 }

@@ -64,7 +64,12 @@ default AWS-managed keys (POC simplicity).
 | Stack | Type | Resources |
 |-------|------|-----------|
 | **MiaxStateful** | Data | Access-logs/input/source buckets, S3 Vectors bucket + index, Bedrock Knowledge Base + data source, DynamoDB query-log table |
-| **MiaxStateless** | Compute | API Gateway (+ API key/usage plan), Upload/Query/Bulk-ingest/Ingest/KB-sync Lambdas, EventBridge rule, optional AgentCore runtime |
+| **MiaxStateless** | Compute | API Gateway (+ API key/usage plan), Upload/Query/Bulk-ingest/Presign/Stats/Ingest/KB-sync Lambdas, EventBridge rule, optional AgentCore runtime |
+
+**API routes** (all `x-api-key` protected): `POST /query`, `POST /single-file`,
+`POST /bulk-ingest`, `POST /presign` (presigned S3 PUT for bulk staging),
+`GET /stats` (KB doc count → connection flag).
+
 
 ---
 
@@ -125,6 +130,17 @@ Manifest columns: `filename` (or `file_name`) + `permissions` (or
 The query Lambda retrieves with `equals(permissions_group, <caller group>)` so
 only that group's content is returned, then generates a grounded answer and
 writes one audit row to DynamoDB.
+
+**Permission safety:** if retrieval returns **no chunks** the caller can access,
+the Lambda short-circuits with a safe "no accessible documents" reply — it never
+asks the model to answer freely, so a group can't get answers for content it has
+no documents for. This is the core guarantee of the metadata-filtered chat.
+
+### Connection status (front end)
+The UI shows a live flag driven by a lightweight `GET /stats` call:
+🟢 **Linked to Knowledge Base** when the API key + backend respond, 🔴
+**Disconnected from AWS** otherwise.
+
 
 > Alternate single-file path (no API): upload straight to the **input bucket**
 > with S3 object metadata `x-amz-meta-permissions_group=<group>`. The Ingest

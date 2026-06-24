@@ -139,16 +139,28 @@ def _retrieve(prompt: str, permission_group: str) -> list[dict]:
 
 
 def _generate(prompt: str, citations: list[dict]) -> tuple[str, dict]:
-    """Generate a grounded answer with Converse; returns (text, usage)."""
+    """Generate a grounded answer with Converse; returns (text, usage).
+
+    Permission safety: if retrieval returned no accessible chunks for this
+    caller's permission group, we do NOT ask the model to answer freely (which
+    could leak knowledge the caller has no documents for). We short-circuit with
+    a safe "no accessible documents" response and zero token usage.
+    """
     context_blocks = "\n\n".join(
         f"[Source {i + 1}] {c['content']}" for i, c in enumerate(citations) if c["content"]
     )
-    user_message = (
-        f"Context:\n{context_blocks}\n\nQuestion: {prompt}"
-        if context_blocks
-        else prompt
-    )
+    if not context_blocks:
+        return (
+            "I don't have any documents you can access that cover that. "
+            "Try uploading a relevant document under your permission group.",
+            {},
+        )
+
+    # Always frame the prompt as a question over the provided context so the
+    # system prompt's "use ONLY the provided context" guard is enforced.
+    user_message = f"Context:\n{context_blocks}\n\nQuestion: {prompt}"
     resp = bedrock_runtime.converse(
+
         modelId=MODEL_ARN,
         system=[{"text": _SYSTEM_PROMPT}],
         messages=[{"role": "user", "content": [{"text": user_message}]}],

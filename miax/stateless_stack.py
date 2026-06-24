@@ -246,7 +246,30 @@ class MiaxStatelessStack(Stack):
         input_bucket.grant_put(presign_fn)
 
         # ------------------------------------------------------------------
+        # 3c. Stats Lambda - counts curated docs in the source bucket so the UI
+        #     "N indexed" badge reflects what's actually in the knowledge base.
+        # ------------------------------------------------------------------
+        stats_fn = lambda_.Function(
+            self,
+            "StatsFunction",
+            function_name=f"{PROJECT_PREFIX}-{config.env_name}-stats",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=lambda_.Code.from_asset(os.path.join(_LAMBDA_DIR, "stats")),
+            timeout=Duration.seconds(30),
+            memory_size=128,
+            tracing=tracing,
+            log_retention=log_retention,
+            environment={
+                **common_env,
+                "SOURCE_BUCKET": source_bucket.bucket_name,
+            },
+        )
+        source_bucket.grant_read(stats_fn)
+
+        # ------------------------------------------------------------------
         # 4. Query Lambda - API path (the RAG agent).
+
         # ------------------------------------------------------------------
         query_fn = lambda_.Function(
             self,
@@ -329,6 +352,15 @@ class MiaxStatelessStack(Stack):
         _add_route("single-file", upload_fn)
         _add_route("bulk-ingest", bulk_ingest_fn)
         _add_route("presign", presign_fn)
+
+        # GET /stats -> stats_fn  (the "N indexed" badge)
+        stats_resource = api.root.add_resource("stats")
+        stats_resource.add_method(
+            "GET",
+            apigw.LambdaIntegration(stats_fn, proxy=True),
+            api_key_required=True,
+        )
+
 
         # API key + usage plan - callers must send header `x-api-key: <key>`.
         api_key = api.add_api_key(

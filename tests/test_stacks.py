@@ -113,14 +113,23 @@ def test_api_gateway_with_api_key():
     stateless.resource_count_is("AWS::ApiGateway::UsagePlan", 1)
     # No Lambda Function URLs anymore - everything goes through API Gateway.
     stateless.resource_count_is("AWS::Lambda::Url", 0)
-    # All POST methods require an API key.
-    methods = stateless.find_resources(
+    # POST routes: /query, /single-file, /bulk-ingest, /presign.
+    post_methods = stateless.find_resources(
         "AWS::ApiGateway::Method",
         {"Properties": {"HttpMethod": "POST"}},
     )
-    assert len(methods) == 3  # /query, /single-file, /bulk-ingest
-    for method in methods.values():
+    assert len(post_methods) == 4
+    for method in post_methods.values():
         assert method["Properties"]["ApiKeyRequired"] is True
+    # GET route: /stats (also api-key protected).
+    get_methods = stateless.find_resources(
+        "AWS::ApiGateway::Method",
+        {"Properties": {"HttpMethod": "GET"}},
+    )
+    assert len(get_methods) == 1
+    for method in get_methods.values():
+        assert method["Properties"]["ApiKeyRequired"] is True
+
 
 
 

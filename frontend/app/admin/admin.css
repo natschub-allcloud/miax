@@ -810,3 +810,72 @@
   border-radius: 3px;
   font-size: 0.75rem;
 }
+
+/* Chat permission selector (independent of the upload dropdown) */
+.chat-permission-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+.chat-permission-select label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.chat-permission-select select {
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Bulk upload CSV-format explainer box */
+.bulk-format-box {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.bulk-format-box strong { display: block; margin-bottom: 6px; }
+.bulk-format-box pre {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  padding: 10px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 8px 0;
+}
+
+/* Connection status flag (green = linked, red = disconnected) */
+.conn-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.conn-flag-green {
+  color: #1a7f37;
+  background: rgba(35, 134, 54, 0.15);
+  border: 1px solid rgba(35, 134, 54, 0.4);
+}
+.conn-flag-red {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.15);
+  border: 1px solid rgba(207, 34, 46, 0.4);
+}
+.conn-flag-neutral {
+  color: #9a9a9a;
+  background: rgba(150, 150, 150, 0.12);
+  border: 1px solid rgba(150, 150, 150, 0.3);
+}
