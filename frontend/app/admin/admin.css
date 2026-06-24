@@ -400,6 +400,7 @@
   flex-direction: column;
   padding: 1.5rem 2rem;
   overflow: hidden;
+  height: calc(100vh - 80px);
 }
 
 .chat-panel-header {
@@ -440,6 +441,7 @@
   flex-direction: column;
   gap: 0.6rem;
   padding-right: 0.25rem;
+  min-height: 0;
 }
 
 .chat-panel-messages::-webkit-scrollbar {

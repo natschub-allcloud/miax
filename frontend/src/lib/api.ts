@@ -135,3 +135,57 @@ export function fileToBase64(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+
+export interface PresignRequest {
+  filename: string;
+  batch_id: string;
+}
+
+export interface PresignResponse {
+  upload_url: string;
+  key: string;
+}
+
+/**
+ * Get a presigned S3 URL for uploading a file to the staging bucket.
+ */
+export async function getPresignedUrl(request: PresignRequest): Promise<PresignResponse> {
+  const res = await fetch("/api/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error((data as ApiError).error || `Presign failed (${res.status})`);
+  }
+
+  return data as PresignResponse;
+}
+
+/**
+ * Upload a file directly to S3 using a presigned URL.
+ */
+export async function uploadToS3(presignedUrl: string, file: File): Promise<void> {
+  const res = await fetch(presignedUrl, {
+    method: "PUT",
+    body: file,
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`S3 upload failed (${res.status})`);
+  }
+}
+
+/**
+ * Generate a unique batch ID for bulk uploads.
+ */
+export function generateBatchId(): string {
+  return `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}

@@ -4,7 +4,7 @@ import { useState, useRef, DragEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import "./admin.css";
 import Sidebar, { SidebarView } from "../sidebar/sidebar";
-import { queryAgent, uploadSingleFile, fileToBase64 } from "../../src/lib/api";
+import { queryAgent, uploadSingleFile, fileToBase64, getPresignedUrl, uploadToS3, generateBatchId, bulkIngest } from "../../src/lib/api";
 
 interface AdminPanelProps {
   onBack?: () => void;
@@ -118,35 +118,79 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
   }
 
   async function handleBulkSubmit() {
-    if (uploadedFiles.length === 0 || selectedPermissions.length === 0) return;
+    if (uploadedFiles.length === 0) return;
     setBulkUploading(true);
     setBulkStatus(null);
 
-    const permGroup = selectedPermissions[0].toLowerCase().replace(/\s+/g, "_");
-    let successCount = 0;
-    let errorCount = 0;
+    // Find the manifest CSV among the uploaded files
+    const csvFile = uploadedFiles.find((f) => f.file.name.toLowerCase().endsWith(".csv"));
+    const docFiles = uploadedFiles.filter((f) => !f.file.name.toLowerCase().endsWith(".csv"));
 
-    for (const item of uploadedFiles) {
+    if (!csvFile) {
+      setBulkStatus("No CSV manifest found. Include a CSV file with 'filename' and 'permissions' columns.");
+      setBulkUploading(false);
+      return;
+    }
+
+    if (docFiles.length === 0) {
+      setBulkStatus("No document files found. Include PDFs or other docs alongside the CSV manifest.");
+      setBulkUploading(false);
+      return;
+    }
+
+    const batchId = generateBatchId();
+
+    // Step 1: Upload all document files to S3 staging
+    for (const item of docFiles) {
       try {
-        const base64 = await fileToBase64(item.file);
-        await uploadSingleFile({
+        const { upload_url } = await getPresignedUrl({
           filename: item.file.name,
-          permission_group: permGroup,
-          content_base64: base64,
+          batch_id: batchId,
         });
-        successCount++;
-        setCompletedFiles((prev) => [...prev, item.file.name]);
+        await uploadToS3(upload_url, item.file);
       } catch {
-        errorCount++;
+        setBulkStatus(`Failed to stage "${item.file.name}" to S3.`);
+        setBulkUploading(false);
+        return;
       }
     }
 
-    setBulkUploading(false);
-    setBulkStatus(
-      `Uploaded ${successCount} file(s)${errorCount > 0 ? `, ${errorCount} failed` : ""}.`
-    );
-    if (successCount > 0) {
-      setUploadedFiles([]);
+    // Step 2: Upload the CSV as manifest.csv in the staging folder
+    try {
+      const { upload_url } = await getPresignedUrl({
+        filename: "manifest.csv",
+        batch_id: batchId,
+      });
+      await uploadToS3(upload_url, csvFile.file);
+    } catch {
+      setBulkStatus("Failed to upload manifest CSV to S3.");
+      setBulkUploading(false);
+      return;
+    }
+
+    // Step 3: Call bulk-ingest (Lambda reads manifest from S3)
+    try {
+      const result = await bulkIngest({ batch_id: batchId });
+
+      const successCount = result.processed.length;
+      const errorCount = result.errors.length;
+      setBulkStatus(
+        `Processed ${successCount} file(s)${errorCount > 0 ? `, ${errorCount} failed` : ""}.`
+      );
+      if (successCount > 0) {
+        setUploadedFiles([]);
+        setCompletedFiles((prev) => [...prev, ...result.processed.map((p) => p.filename)]);
+      }
+      if (errorCount > 0) {
+        const errorDetails = result.errors.map((e) => `${e.filename || "?"}: ${e.reason}`).join("; ");
+        setBulkStatus((prev) => `${prev} Errors: ${errorDetails}`);
+      }
+    } catch (err) {
+      setBulkStatus(
+        `Bulk ingest failed: ${err instanceof Error ? err.message : "Unknown error"}`
+      );
+    } finally {
+      setBulkUploading(false);
     }
   }
 
@@ -307,7 +351,7 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
                 className={`upload-tab ${activeTab === "bulk" ? "active" : ""}`}
                 onClick={() => setActiveTab("bulk")}
               >
-                Bulk Upload
+                Multiple Uploads
               </button>
             </div>
 

@@ -225,6 +225,27 @@ class MiaxStatelessStack(Stack):
         kb_sync_fn.grant_invoke(bulk_ingest_fn)
 
         # ------------------------------------------------------------------
+        # 3b. Presign Lambda - generates presigned S3 PUT URLs for bulk staging.
+        # ------------------------------------------------------------------
+        presign_fn = lambda_.Function(
+            self,
+            "PresignFunction",
+            function_name=f"{PROJECT_PREFIX}-{config.env_name}-presign",
+            runtime=lambda_.Runtime.PYTHON_3_12,
+            handler="handler.handler",
+            code=lambda_.Code.from_asset(os.path.join(_LAMBDA_DIR, "presign")),
+            timeout=Duration.seconds(10),
+            memory_size=128,
+            tracing=tracing,
+            log_retention=log_retention,
+            environment={
+                **common_env,
+                "INPUT_BUCKET": input_bucket.bucket_name,
+            },
+        )
+        input_bucket.grant_put(presign_fn)
+
+        # ------------------------------------------------------------------
         # 4. Query Lambda - API path (the RAG agent).
         # ------------------------------------------------------------------
         query_fn = lambda_.Function(
@@ -307,6 +328,7 @@ class MiaxStatelessStack(Stack):
         _add_route("query", query_fn)
         _add_route("single-file", upload_fn)
         _add_route("bulk-ingest", bulk_ingest_fn)
+        _add_route("presign", presign_fn)
 
         # API key + usage plan - callers must send header `x-api-key: <key>`.
         api_key = api.add_api_key(
