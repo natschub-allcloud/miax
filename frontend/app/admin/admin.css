@@ -879,3 +879,27 @@
   background: rgba(150, 150, 150, 0.12);
   border: 1px solid rgba(150, 150, 150, 0.3);
 }
+
+/* Source document chips under a bot answer */
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.chat-sources-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+.chat-source-chip {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(200, 130, 50, 0.18);
+  border: 1px solid rgba(200, 130, 50, 0.4);
+}

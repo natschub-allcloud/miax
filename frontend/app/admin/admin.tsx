@@ -38,7 +38,19 @@ interface UploadedFile {
 interface ChatMessage {
   role: "bot" | "user";
   content: string;
+  // Source document names that grounded a bot answer (deduped, in order).
+  sources?: string[];
 }
+
+/** Turn an S3 URI / location into a readable document name. */
+function docNameFromUri(uri: string | null): string | null {
+  if (!uri) return null;
+  // Strip query string, take the last path segment (the file name).
+  const clean = uri.split("?")[0].replace(/\/+$/, "");
+  const name = clean.substring(clean.lastIndexOf("/") + 1);
+  return name || null;
+}
+
 
 type UploadTab = "single" | "bulk";
 
@@ -299,7 +311,20 @@ export default function AdminPanel({ onBack }: AdminPanelProps) {
       });
 
 
-      const botMsg: ChatMessage = { role: "bot", content: response.answer };
+      // A successful query proves we're connected (even if /stats isn't
+      // deployed yet) - flip the connection flag green.
+      setConnected(true);
+
+      // Collect the source document names that grounded this answer.
+      const sources = Array.from(
+        new Set(
+          (response.citations || [])
+            .map((c) => docNameFromUri(c.source_uri))
+            .filter((n): n is string => Boolean(n))
+        )
+      );
+
+      const botMsg: ChatMessage = { role: "bot", content: response.answer, sources };
       setMessages((prev) => [...prev, botMsg]);
     } catch (err) {
       const errorMsg: ChatMessage = {
@@ -603,6 +628,14 @@ roadmap.docx,permissions_group_b`}</pre>
                 messages.map((msg, i) => (
                   <div key={i} className={`chat-panel-bubble ${msg.role}`}>
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    {msg.role === "bot" && msg.sources && msg.sources.length > 0 && (
+                      <div className="chat-sources">
+                        <span className="chat-sources-label">Sources:</span>
+                        {msg.sources.map((s, j) => (
+                          <span key={j} className="chat-source-chip">📄 {s}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
               )}
