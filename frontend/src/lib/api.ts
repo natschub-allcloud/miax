@@ -139,13 +139,16 @@ export function fileToBase64(file: File): Promise<string> {
 
 export interface PresignRequest {
   filename: string;
-  batch_id: string;
+  permission_group: string;
 }
 
 export interface PresignResponse {
   upload_url: string;
   key: string;
+  // Headers (e.g. x-amz-meta-permissions_group) that MUST be sent on the PUT.
+  headers: Record<string, string>;
 }
+
 
 /**
  * Get a presigned S3 URL for uploading a file to the staging bucket.
@@ -168,13 +171,20 @@ export async function getPresignedUrl(request: PresignRequest): Promise<PresignR
 
 /**
  * Upload a file directly to S3 using a presigned URL.
+ * The `headers` returned by /presign (e.g. x-amz-meta-permissions_group) MUST
+ * be replayed here or S3 rejects the PUT (the signature covers them).
  */
-export async function uploadToS3(presignedUrl: string, file: File): Promise<void> {
+export async function uploadToS3(
+  presignedUrl: string,
+  file: File,
+  extraHeaders: Record<string, string> = {}
+): Promise<void> {
   const res = await fetch(presignedUrl, {
     method: "PUT",
     body: file,
     headers: {
       "Content-Type": file.type || "application/octet-stream",
+      ...extraHeaders,
     },
   });
 
@@ -184,11 +194,18 @@ export async function uploadToS3(presignedUrl: string, file: File): Promise<void
 }
 
 /**
- * Generate a unique batch ID for bulk uploads.
+ * Upload one file end-to-end via the presigned-PUT path (no size limit, no
+ * base64, never touches API Gateway). The permission group is baked into the
+ * presigned URL's metadata, and the ingest Lambda picks it up from S3.
  */
-export function generateBatchId(): string {
-  return `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+export async function uploadViaPresign(file: File, permissionGroup: string): Promise<void> {
+  const { upload_url, headers } = await getPresignedUrl({
+    filename: file.name,
+    permission_group: permissionGroup,
+  });
+  await uploadToS3(upload_url, file, headers);
 }
+
 
 export interface StatsResponse {
   indexed: number;
