@@ -19,7 +19,9 @@
     "@aws-cdk/aws-s3:createDefaultLoggingPolicy": true,
     "@aws-cdk/aws-s3:serverAccessLogsUseBucketPolicy": true,
     "@aws-cdk/core:crossStackReferencesDefaultStrong": true,
+    "@aws-cdk/core:bootstrapQualifier": "miaxai",
     "env": "dev",
+
     "deployAgent": false,
     "embeddingModelId": "amazon.titan-embed-text-v2:0",
     "embeddingDimension": 1024,
