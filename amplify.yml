@@ -10,7 +10,10 @@ applications:
       phases:
         preBuild:
           commands:
-            - npm ci
+            # Use npm install (not npm ci) since the lockfile was removed with
+            # the Amplify Gen2 scaffolding; this is plain frontend hosting only.
+            - npm install
+
         build:
           commands:
             - npm run build
