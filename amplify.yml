@@ -16,7 +16,15 @@ applications:
 
         build:
           commands:
+            # Amplify console env vars are available at BUILD time but are NOT
+            # auto-injected into the Next.js SSR runtime. Write them to
+            # .env.production so the server-side /api/* route handlers can read
+            # process.env.API_URL / API_KEY at request time. (Next only exposes
+            # NEXT_PUBLIC_* to the browser, so these stay server-only/secret.)
+            - 'echo "API_URL=$API_URL" >> .env.production'
+            - 'echo "API_KEY=$API_KEY" >> .env.production'
             - npm run build
+
       artifacts:
         baseDirectory: .next
         files:

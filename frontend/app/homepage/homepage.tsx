@@ -40,7 +40,8 @@ export default function Homepage({ onSignIn }: HomepageProps) {
 
       {/* Hero Section */}
       <section className="hero">
-        <h1 className="hero-title">MIAX RAG<br />Document Assistant</h1>
+        <h1 className="hero-title">MIAX Document<br />Retrieval AI</h1>
+
         <button className="hero-btn" onClick={onSignIn}>
           Sign In <span className="btn-arrow">&rarr;</span>
         </button>

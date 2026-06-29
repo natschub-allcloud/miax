@@ -903,3 +903,18 @@
   background: rgba(200, 130, 50, 0.18);
   border: 1px solid rgba(200, 130, 50, 0.4);
 }
+
+/* Chat "thinking" spinner shown after sending a message */
+.chat-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(200, 130, 50, 0.3);
+  border-top-color: rgba(200, 130, 50, 0.95);
+  border-radius: 50%;
+  animation: chat-spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+.chat-thinking-text { opacity: 0.7; font-style: italic; vertical-align: middle; }
+@keyframes chat-spin { to { transform: rotate(360deg); } }

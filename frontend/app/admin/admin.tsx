@@ -466,9 +466,16 @@ roadmap.docx,permissions_group_b`}</pre>
                   </div>
                 ))
               )}
+              {chatLoading && (
+                <div className="chat-panel-bubble bot">
+                  <span className="chat-spinner" aria-label="Assistant is thinking" />
+                  <span className="chat-thinking-text">Thinking…</span>
+                </div>
+              )}
             </div>
 
             <form className="chat-panel-input-area" onSubmit={handleChatSend}>
+
               <div className="chat-panel-input-wrapper">
                 <input type="text" placeholder="Ask a question about your documents..." value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)} className="chat-panel-input" />

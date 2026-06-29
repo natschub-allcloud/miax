@@ -28,8 +28,8 @@ export default function Sidebar({ activeView, onNavigate, onBack }: SidebarProps
 
       {/* Navigation */}
       <nav className="sidebar-nav">
-        <p className="sidebar-nav-label">WORKSPACE</p>
         {NAV_ITEMS.map((item) => (
+
           <button
             key={item.id}
             className={`sidebar-nav-item ${activeView === item.id ? "active" : ""}`}
